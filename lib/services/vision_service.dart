@@ -67,7 +67,7 @@ String _findBestLanguge(List detectedLanguages) {
   // [{"languageCode":"en","confidence":0.51},{"languageCode":"ja","confidence":0.3},{"languageCode":"fi","confidence":0.06},{"languageCode":"gd","confidence":0.03}]
   List langs = detectedLanguages.map((dl) => dl['languageCode']).toList();
   print('langs: $langs');
-  if (langs.contains('ja')) {
+  if (langs.contains('ja') || langs.contains('zh')) {
     return 'ja-JP';
   }
   if (langs.contains('en')) {
