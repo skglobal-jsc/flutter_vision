@@ -15,8 +15,8 @@ class VisionService {
   final String _key;
   VisionService({@required String key}) : _key = key;
 
-  Future<VisionModel> detectDocumentInImage(String image64, int width, int height) async {
-    Response<Map> response = await Dio().post(
+  Future<VisionModel> detectDocumentInImage(String image64, int width, int height, {int timeout = 10}) async {
+    Response<Map> response = await Dio(BaseOptions(connectTimeout: timeout*1000)).post(
         "https://vision.googleapis.com/v1/images:annotate",
         queryParameters: {
           'key': _key
