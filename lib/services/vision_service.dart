@@ -15,8 +15,8 @@ class VisionService {
   final String _key;
   VisionService({@required String key}) : _key = key;
 
-  Future<VisionModel> detectDocumentInImage(String image64, int width, int height) async {
-    Response<Map> response = await Dio().post(
+  Future<VisionModel> detectDocumentInImage(String image64, int width, int height, {int timeout = 7}) async {
+    Response<Map> response = await Dio(BaseOptions(connectTimeout: timeout * 1000)).post(
         "https://vision.googleapis.com/v1/images:annotate",
         queryParameters: {
           'key': _key
@@ -39,14 +39,25 @@ class VisionService {
       return null;
     }
 
-    dynamic nativeQueryArguments =
-        await compute<Map, dynamic>(_parseToGiangLibModel, response.data);
+    int direct = _getDirectOfParagraph(response.data['responses'][0]['textAnnotations']);
+    print('detect direct: ${direct == 1 ? 'H' : 'V'}');
+    if (direct == 0) {
+      // Todo use raw data from Google API
+      String rawText = response.data['responses'][0]['fullTextAnnotation']['text'] ?? '';
+      List<String> pTexts = rawText.split('\n')
+          .map((item) => item.trim())
+          .where((itemTrimmed) => itemTrimmed != null && itemTrimmed.length > 0)
+          .toList();
+      String languageCode = _getBestLanguage(response.data);
+      return VisionModel(texts: pTexts, lang: languageCode);
+    }
+
+    dynamic nativeQueryArguments = await compute<Map, dynamic>(_parseToGiangLibModel, response.data);
     // Or throw?
     if (nativeQueryArguments == null) return null;
 
     List<dynamic> indexes;
-    dynamic nativeResponse =
-        await FlutterVision.sortWords(image64, width, height, nativeQueryArguments);
+    dynamic nativeResponse = await FlutterVision.sortWords(image64, width, height, nativeQueryArguments);
     if (nativeResponse is Map && nativeResponse.containsKey('result')) {
       indexes = nativeResponse['result'];
     } else {
@@ -63,7 +74,32 @@ class VisionService {
   }
 }
 
-String _findBestLanguge(List detectedLanguages) {
+
+/// Get direct
+/// return 1 if Horz
+/// return 0 if Vertical
+int _getDirectOfParagraph(List<dynamic> list) {
+  int total = 0;
+  int hCorrect = 0;
+  for (int i = 0; i < list.length; ++i) {
+    Map item = list[i];
+    if (!item.containsKey('boundingPoly')) continue;
+    if (!(item['boundingPoly']['vertices'] is List)) continue;
+    List<dynamic> points = item['boundingPoly']['vertices'];
+    if (points.length != 4) continue;
+    int w =  (points[1]['x'] - points[0]['x']).abs();
+    int h = (points[2]['y'] - points[1]['y']).abs();
+    if (w > h*2) {
+      hCorrect++;
+    }
+    total++;
+  };
+
+  // detect more 50%
+  return hCorrect*2 > total ? 1 : 0;
+}
+
+String _findBestLanguage(List detectedLanguages) {
   // [{"languageCode":"en","confidence":0.51},{"languageCode":"ja","confidence":0.3},{"languageCode":"fi","confidence":0.06},{"languageCode":"gd","confidence":0.03}]
   List langs = detectedLanguages.map((dl) => dl['languageCode']).toList();
   print('langs: $langs');
@@ -77,6 +113,20 @@ String _findBestLanguge(List detectedLanguages) {
     return 'vi-VN';
   }
   return 'en-US';
+}
+
+String _getBestLanguage(dynamic response) {
+  String bestLang = 'ja-JP';
+  if (response['responses'][0].containsKey('fullTextAnnotation') &&
+      response['responses'][0]['fullTextAnnotation'].containsKey('pages')) {
+    var pages = response['responses'][0]['fullTextAnnotation']['pages'];
+    if (pages is List && pages.length > 0 && pages[0].containsKey('blocks')) {
+      if (pages[0].containsKey('property')) {
+        bestLang = _findBestLanguage(pages[0]['property']['detectedLanguages']);
+      }
+    }
+  }
+  return bestLang;
 }
 
 /// Return value:
@@ -98,9 +148,8 @@ Future<Map> _parseToGiangLibModel(dynamic response) {
     if (pages is List && pages.length > 0 && pages[0].containsKey('blocks')) {
       blocks = pages[0]['blocks'];
       if (pages[0].containsKey('property')) {
-        defaultLang =
-            pages[0]['property']['detectedLanguages'][0]['languageCode'];
-        bestLang = _findBestLanguge(pages[0]['property']['detectedLanguages']);
+        defaultLang = pages[0]['property']['detectedLanguages'][0]['languageCode'];
+        bestLang = _findBestLanguage(pages[0]['property']['detectedLanguages']);
       }
     }
   }
@@ -122,7 +171,7 @@ Future<Map> _parseToGiangLibModel(dynamic response) {
         String wordLang = defaultLang;
         if (words[k].containsKey('property')) {
           wordLang =
-              words[k]['property']['detectedLanguages'][0]['languageCode'];
+          words[k]['property']['detectedLanguages'][0]['languageCode'];
         }
         if (wordLang == 'en') {
           List symbols = words[k]['symbols'];
