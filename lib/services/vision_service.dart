@@ -59,7 +59,21 @@ class VisionService {
         _arrangeWordsToSegments,
         {'indexes': indexes, 'words': nativeQueryArguments['words']});
     print('best lang: ${nativeQueryArguments['bestLang']}');
-    return VisionModel(texts: segments, lang: nativeQueryArguments['bestLang']);
+
+    String googleLibRaw = response.data['responses'][0]['fullTextAnnotation']['text'] ?? '';
+    double confidence = _sameRatio(segments, googleLibRaw);
+    print('Confinence here $confidence');
+
+    if (confidence > 0.01) {
+      return VisionModel(texts: segments, lang: nativeQueryArguments['bestLang']);
+    } else {
+      String rawText = response.data['responses'][0]['fullTextAnnotation']['text'] ?? '';
+      List<String> pTexts = rawText.split('\n')
+          .map((item) => item.trim())
+          .where((itemTrimmed) => itemTrimmed != null && itemTrimmed.length > 0)
+          .toList();
+      return VisionModel(texts: pTexts, lang: nativeQueryArguments['bestLang']);
+    }
   }
 }
 
@@ -192,4 +206,25 @@ Future<List<String>> _arrangeWordsToSegments(Map info) {
     segments.add(segment);
   }
   return Future.value(segments);
+}
+double _sameRatio(List<String> gList, String googleRaw) {
+  String giangLibRaw = gList.join('');
+  List<String> googleList = googleRaw.split(('\n'));
+  List<String> cmpList = [];
+  googleList.sort((a,b) => b.length - a.length);
+  cmpList = googleList.take(5).map((item) {
+    int s = (item.length * 0.2).toInt();
+    int e = (item.length * 0.8).toInt();
+    if (s < e) return item.substring(s, e);
+    return '';
+  }).toList();
+
+  int s = 0;
+  cmpList.forEach((item) {
+    if (giangLibRaw.contains(item)) {
+      s++;
+    }
+//    print(item);
+  });
+  return s * 1.0 / cmpList.length;
 }
