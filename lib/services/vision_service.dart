@@ -64,7 +64,7 @@ class VisionService {
     double confidence = _sameRatio(segments, googleLibRaw);
     print('Confinence here $confidence');
 
-    if (confidence > 0.3) {
+    if (confidence > 0.15) {
       return VisionModel(texts: segments, lang: nativeQueryArguments['bestLang']);
     } else {
       String rawText = response.data['responses'][0]['fullTextAnnotation']['text'] ?? '';
