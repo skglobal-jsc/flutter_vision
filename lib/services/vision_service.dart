@@ -64,7 +64,7 @@ class VisionService {
     double confidence = _sameRatio(segments, googleLibRaw);
     print('Confinence here $confidence');
 
-    if (confidence > 0.01) {
+    if (confidence > 0.3) {
       return VisionModel(texts: segments, lang: nativeQueryArguments['bestLang']);
     } else {
       String rawText = response.data['responses'][0]['fullTextAnnotation']['text'] ?? '';
@@ -211,12 +211,13 @@ double _sameRatio(List<String> gList, String googleRaw) {
   String giangLibRaw = gList.join('');
   List<String> googleList = googleRaw.split(('\n'));
   List<String> cmpList = [];
-  googleList.sort((a,b) => b.length - a.length);
+//  googleList.sort((a,b) => b.length - a.length);
   cmpList = googleList.take(5).map((item) {
-    int s = (item.length * 0.2).toInt();
-    int e = (item.length * 0.8).toInt();
-    if (s < e) return item.substring(s, e);
-    return '';
+    return item;
+//    int s = (item.length * 0.2).toInt();
+//    int e = (item.length * 0.8).toInt();
+//    if (s < e) return item.substring(s, e);
+//    return '';
   }).toList();
 
   int s = 0;
