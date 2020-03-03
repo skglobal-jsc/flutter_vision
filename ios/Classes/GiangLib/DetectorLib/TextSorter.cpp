@@ -25,12 +25,15 @@ vector<vector<int>> TextSorter::sort(Mat& image, vector<Word> words)
 {
     // vertices in boxes is clockwise start from top left
     correctRotation(image, words);
-    
+
     // scale for performance optimize
     Mat detectImage = image.clone();
     float scale = scaleImageIfNeeded(detectImage, STANDARD_DETECT_SIZE);
-    
+
     // scale word vertices
+    // also find standard word height (the height which almost all word have)
+    vector<float> wordHeights;
+    vector<int> wordHeightCount;
     int wordCount = (int)words.size();
     for (int i=0;i < wordCount;i ++) {
         for (int j=0;j < 4;j ++) {
@@ -40,8 +43,30 @@ vector<vector<int>> TextSorter::sort(Mat& image, vector<Word> words)
         words[i]._rect.y *= scale;
         words[i]._rect.width *= scale;
         words[i]._rect.height *= scale;
+        float wordHeight = words[i]._rect.height;
+        bool match = false;
+        for (int j=(int)wordHeights.size()-1;j >= 0;j --) {
+            if (fabs(wordHeight-wordHeights[j]) < 3) {
+                wordHeightCount[j] ++;
+                match = true;
+                break;
+            }
+        }
+        if (!match) {
+            wordHeights.push_back(wordHeight);
+            wordHeightCount.push_back(1);
+        }
     }
-    
+
+    int maxIndex = 0;
+    for (int i=(int)wordHeightCount.size()-1;i >= 0;i --) {
+        if (wordHeightCount[i] > wordHeightCount[maxIndex]) {
+            maxIndex = i;
+        }
+    }
+    float standardWordHeight = wordHeights[maxIndex];
+    float verticeExpand = WORD_VERTICAL_EXPAND*standardWordHeight;
+
     // filter wrong order word
     for (int i=wordCount-1;i >= 0;i --) {
         Point2i normal = words[i]._vertices[2]-words[i]._vertices[3];
@@ -49,7 +74,7 @@ vector<vector<int>> TextSorter::sort(Mat& image, vector<Word> words)
             words.erase(words.begin()+i);
         }
     }
-    
+
     // create words mask
     Mat boxMask = Mat::zeros(detectImage.rows, detectImage.cols, CV_8U);
     wordCount = (int)words.size();
@@ -58,13 +83,14 @@ vector<vector<int>> TextSorter::sort(Mat& image, vector<Word> words)
         Rect rect = words[i]._rect;
         float hscale = WORD_HORIZONTAL_EXPAND*rect.height;
         float vscale = WORD_VERTICAL_EXPAND*rect.height;
+        if (vscale > verticeExpand) vscale = verticeExpand;
         rect.x -= 0.5f*hscale;
         rect.y -= 0.5f*vscale;
         rect.width += hscale;
         rect.height += vscale;
         rectangle(boxMask, rect, Scalar(255), CV_FILLED);
     }
-    
+
     // remove wrong connection
     vector<vector<Point2i>> contours;
     findContours(boxMask, contours, RETR_LIST, CHAIN_APPROX_SIMPLE);
@@ -74,7 +100,7 @@ vector<vector<int>> TextSorter::sort(Mat& image, vector<Word> words)
         _contours.push_back(contours[i]);
         drawContours(boxMask, _contours, -1, Scalar(255), CV_FILLED);
     }
-    
+
     // find segment boxes
     contours.clear();
     findContours(boxMask, contours, RETR_LIST, CHAIN_APPROX_SIMPLE);
@@ -88,11 +114,11 @@ vector<vector<int>> TextSorter::sort(Mat& image, vector<Word> words)
         segments.push_back(Segment(rect));
         rectangle(boxMask, rect, Scalar(255), CV_FILLED);
     }
-    
+
     // separate words into nearby segment
     segmentWords(segments, words);
     filterSegments(segments);
-    
+
     // sort word and sort segment
     int segmentCount = (int)segments.size();
     for (int i=0;i < segmentCount;i ++) {
@@ -106,9 +132,9 @@ vector<vector<int>> TextSorter::sort(Mat& image, vector<Word> words)
         }
     }
     // TODO: process for vertical line
-    
+
     sortSegments(segments);
-    
+
     // create return data
     segmentCount = (int)segments.size();
     vector<vector<int>> flatSegments;
@@ -120,7 +146,7 @@ vector<vector<int>> TextSorter::sort(Mat& image, vector<Word> words)
         }
         flatSegments.push_back(flatSegment);
     }
-    
+
     // debug
     // detectImage = Mat::zeros(boxMask.rows, boxMask.cols, CV_8U);
     for (int i=0;i < segmentCount;i ++) {
@@ -129,9 +155,9 @@ vector<vector<int>> TextSorter::sort(Mat& image, vector<Word> words)
         ostringstream oss;
         oss.str(""); oss << i;
         putText(detectImage, oss.str().c_str(), Point2i(rect.x, rect.y), FONT_HERSHEY_COMPLEX_SMALL, 1, Scalar(255));
-//        int wordCount = (int)segmentWords[i].size();
+//        int wordCount = (int)segments[i]._words.size();
 //        for (int j=0;j < wordCount;j ++) {
-//            Rect rect = segmentWords[i][j]._rect;
+//            Rect rect = segments[i]._words[j]._rect;
 //            int order = j % 10;
 //            ostringstream oss;
 //            oss.str(""); oss << order;
@@ -139,7 +165,7 @@ vector<vector<int>> TextSorter::sort(Mat& image, vector<Word> words)
 //        }
     }
     detectImage.copyTo(image);
-    
+
     return flatSegments;
 }
 
@@ -196,11 +222,11 @@ void TextSorter::correctRotation(Mat& image, vector<Word>& words)
             biggestSlot = i;
         }
     }
-    
+
     Point2f direct = slots[biggestSlot];
     direct.y = -direct.y;
     Point2f rotPoint(0.5f*image.size().width, 0.5f*image.size().height);
-    
+
     float angle = -atan2(direct.y, direct.x);
     angle *= 180/M_PI;
     // rotate image (note that this axis will be flipped with direct demension)
@@ -212,7 +238,7 @@ void TextSorter::correctRotation(Mat& image, vector<Word>& words)
     warpAffine(image, image, rot, bbox.size());
     // target rotate point
     Point2f newRotPoint(0.5f*image.size().width, 0.5f*image.size().height);
-    
+
     for (int i=0;i < count;i ++) {
         for (int j=(int)words[i]._vertices.size()-1;j >= 0;j --) {
             Point2f vertex(words[i]._vertices[j].x, words[i]._vertices[j].y);
@@ -319,7 +345,7 @@ void TextSorter::filterSegments(vector<Segment>& segments)
             }
         }
     } while (processing);
-    
+
     // also merge small segment to biger one
     float smallArea = 0.09f*STANDARD_DETECT_SIZE;
     smallArea *= smallArea;
@@ -395,12 +421,12 @@ void TextSorter::filterSegments(vector<Segment>& segments)
             }
         } while (processing);
     }
-    
+
     // turn back the existing
     for (int i=(int)smallSegments.size()-1;i >= 0;i --) {
         segments.push_back(smallSegments[i]);
     }
-    
+
     // remove low confidence segment
     for (int i=(int)segments.size()-1;i >= 0;i --) {
         float confidence = 0;
@@ -447,14 +473,17 @@ int TextSorter::sortWords(vector<Word>& words)
         }
     }
     vector<vector<Word>> lines;
-    lines.push_back(vector<Word>());
-    lines[0].push_back(words[0]);
-    for (int i=1;i < count;i ++) {
-        int rowH = words[i]._rect.height;
-        int prebottom = words[i-1]._rect.y+words[i-1]._rect.height;
-        int top = words[i]._rect.y;
-        if ((top - prebottom) > -0.2f*rowH) {
+    float lineBottom = 0;
+    for (int i=0;i < count;i ++) {
+        int wordHeight = words[i]._rect.height;
+        int wordTop = words[i]._rect.y;
+        int wordBottom = wordTop + wordHeight;
+        if (wordTop + 0.5*wordHeight > lineBottom) {
             lines.push_back(vector<Word>());
+            lineBottom = wordBottom;
+        } else {
+            int lastLineLength = (int)lines[lines.size()-1].size();
+            lineBottom = (lineBottom*lastLineLength+wordBottom)/(lastLineLength+1);
         }
         lines[lines.size()-1].push_back(words[i]);
     }
@@ -490,7 +519,7 @@ SegmentGroup TextSorter::groupSegments(vector<Segment>& segments)
             }
         }
     }
-    
+
     SegmentGroup group;
     group._columns.push_back(SegmentColumn());
     group._columns[0]._segments.push_back(segments[0]);
@@ -507,7 +536,7 @@ SegmentGroup TextSorter::groupSegments(vector<Segment>& segments)
         group._columns[group._columns.size()-1]._rect = colBox;
         group._columns[group._columns.size()-1]._segments.push_back(segments[i]);
     }
-    
+
     int colCount = (int)group._columns.size();
     for (int c=0;c < colCount;c ++) {
         vector<Segment>& col = group._columns[c]._segments;
@@ -571,7 +600,7 @@ void TextSorter::sortSegments(vector<Segment>& segments)
         segmentLines.push_back(groupSegments(segmentLine));
         i = nextLineId-1;
     }
-    
+
     // merge segment lines
     count = (int)segmentLines.size();
     for (int i=0;i < count-1;i ++) {
@@ -602,9 +631,9 @@ void TextSorter::sortSegments(vector<Segment>& segments)
                 }
             }
         }
-        
+
         if (line2._columns.size() > 0) continue;
-            
+
         // column width validate
         float colWidth = 0;
         for (int c1=0;c1 < col1Num;c1 ++) {
@@ -612,7 +641,7 @@ void TextSorter::sortSegments(vector<Segment>& segments)
         }
         colWidth /= col1Num;
         if (colWidth < 0.2f*pageRect.width) continue;
-        
+
         bool mergeFail = false;
         for (int c1=0;c1 < col1Num;c1 ++) {
             if (line1._columns[c1]._rect.width < 0.9f*colWidth) {
@@ -621,7 +650,7 @@ void TextSorter::sortSegments(vector<Segment>& segments)
             }
         }
         if (mergeFail) continue;
-        
+
         // overlap column validate
         for (int c1=0;c1 < col1Num-1;c1 ++) {
             Rect rect = line1._columns[c1]._rect;
@@ -632,13 +661,13 @@ void TextSorter::sortSegments(vector<Segment>& segments)
             }
         }
         if (mergeFail) continue;
-        
+
         segmentLines[i] = line1;
         segmentLines.erase(segmentLines.begin()+i+1);
         i --;
         count --;
     }
-    
+
     count = (int)segmentLines.size();
     segments.clear();
     for (int i=0;i < count;i ++) {
