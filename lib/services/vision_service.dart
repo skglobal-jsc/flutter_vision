@@ -39,8 +39,7 @@ class VisionService {
       return null;
     }
 
-    dynamic nativeQueryArguments =
-        await compute<Map, dynamic>(_parseToGiangLibModel, response.data);
+    dynamic nativeQueryArguments = await compute<Map, dynamic>(_parseToGiangLibModel, response.data);
     // Or throw?
     if (nativeQueryArguments == null) return null;
 
@@ -225,7 +224,7 @@ double _sameRatio(List<String> gList, String googleRaw) {
     if (giangLibRaw.contains(item)) {
       s++;
     }
-//    print(item);
+    print(item);
   });
   return s * 1.0 / cmpList.length;
 }
